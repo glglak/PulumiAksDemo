@@ -1,4 +1,4 @@
-# PulumiAksDemo
+# Multi Region AKS Deployment with Azure Front Door Using Pulumi
 
 # Prerequisites
 
@@ -13,4 +13,5 @@
 
 5. Pulumi destroy to destroy the stack and its relevant sources on Azure
 
+# Reference Architecture 
 ![alt text](https://raw.githubusercontent.com/phillipgibson/Cloud-Azure-AKS-Using-AFD-with-AKS/master/images/aks-azure-front-door.png)
