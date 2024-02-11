@@ -133,12 +133,13 @@ class MyStack : Stack
             ResourceGroupName = resourceGroup.Name,
             ProfileName = profile.Name,
             OriginGroupName = originGroup.Name,
+            OriginHostHeader = pulumiConfig.Require("aks1servicelbIPEastUs"),
             HostName = pulumiConfig.Require("aks1servicelbIPEastUs"),
             HttpPort = 80,
             HttpsPort = 443,
             EnabledState = "Enabled",
             Priority = 1,
-            Weight = 50,
+            Weight = 500,
             EnforceCertificateNameCheck = false
 
         });
@@ -148,13 +149,13 @@ class MyStack : Stack
             ResourceGroupName = resourceGroup.Name,
             ProfileName = profile.Name,
             OriginGroupName = originGroup.Name,
-           OriginHostHeader=pulumiConfig.Require("aks2servicelbIPWestEurope"),
+            OriginHostHeader=pulumiConfig.Require("aks2servicelbIPWestEurope"),
             HostName = pulumiConfig.Require("aks2servicelbIPWestEurope"),
             HttpPort = 80,
             HttpsPort = 443,
             EnabledState = "Enabled",
             Priority = 2,
-            Weight = 50,
+            Weight = 500,
             EnforceCertificateNameCheck=false
         });
 

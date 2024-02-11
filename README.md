@@ -11,4 +11,6 @@
 
 4. Pulumi up to run the program
 
-5. Pulumi destroy to destroy the stack
+5. Pulumi destroy to destroy the stack and its relevant sources on Azure
+
+![alt text](https://raw.githubusercontent.com/phillipgibson/Cloud-Azure-AKS-Using-AFD-with-AKS/master/images/aks-azure-front-door.png)
