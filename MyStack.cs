@@ -26,16 +26,102 @@ using SkuArgs = Pulumi.AzureNative.Cdn.Inputs.SkuArgs;
 
 class MyStack : Stack
 {
-    
+    [Output]
+    public Output<string> KubeConfig { get; set; }
+
+    [Output]
+    public Output<string> ServiceExternalIp { get; set; }
+
     public MyStack()
     {
         var resourceGroup = new ResourceGroup("aksResourceGroup");
         var pulumiConfig = new Pulumi.Config();
-       
+        // Create an Azure Front Door profile
+        var profile = new Profile("myFrontDoorProfile", new ProfileArgs
+        {
+            ResourceGroupName = resourceGroup.Name,
+            Location = "Global", // Front Door service is always "Global"
+            Sku = new Pulumi.AzureNative.Cdn.V20230701Preview.Inputs.SkuArgs
+            {
+                Name = "Standard_AzureFrontDoor"
+            }
+        });
+        var originGroup = new AFDOriginGroup("myOriginGroup", new AFDOriginGroupArgs
+        {
+            ResourceGroupName = resourceGroup.Name,
+            ProfileName = profile.Name,
+            LoadBalancingSettings = new Pulumi.AzureNative.Cdn.V20230701Preview.Inputs.LoadBalancingSettingsParametersArgs
+            {
+                SampleSize = 4,
+                SuccessfulSamplesRequired = 2
+            },
+            HealthProbeSettings = new HealthProbeParametersArgs
+            {
+                ProbePath = "/health",
+                ProbeProtocol = ProbeProtocol.Https,
+                ProbeRequestType = HealthProbeRequestType.GET,
+                ProbeIntervalInSeconds = 60
+            }
+        });
+        // Create a Frontend Endpoint
+        var frontendEndpoint = new AFDEndpoint("myFrontendEndpoint", new Pulumi.AzureNative.Cdn.V20230701Preview.AFDEndpointArgs
+        {
+            ResourceGroupName = resourceGroup.Name,
+            ProfileName = profile.Name,
+            EnabledState = "Enabled",
+            Location = pulumiConfig.Get("cluster2location")
+            // Specify other properties as required
+        });
+        // Create a default route for the origin group
+        var route = new Route("defaultRoute", new RouteArgs
+        {
+            ResourceGroupName = resourceGroup.Name,
+            ProfileName = profile.Name,
+            EndpointName = frontendEndpoint.Name,
+            OriginGroup = new Pulumi.AzureNative.Cdn.V20230701Preview.Inputs.ResourceReferenceArgs
+            {
+                Id = originGroup.Id
+            },
+            PatternsToMatch = new List<string> { "/*" },
+            ForwardingProtocol = ForwardingProtocol.HttpOnly,
+            EnabledState = "Enabled",
+            LinkToDefaultDomain = "Enabled"
+            // Specify other properties as required
+        });
         for (int clusterCount=0;clusterCount<(pulumiConfig.GetInt32("clusterCount") ??2);clusterCount++)
         {
-            var cluster = new ManagedCluster(pulumiConfig.Get("clustername") + clusterCount ?? "AksCluster"+clusterCount, 
-                new ManagedClusterArgs
+            ManagedCluster cluster = CreateAKSCluster(resourceGroup, pulumiConfig, clusterCount);
+
+           this.ServiceExternalIp = DeployAppIntoAKS(resourceGroup, pulumiConfig, clusterCount, cluster);
+           
+
+            var origin = new AFDOrigin("origin"+clusterCount, new Pulumi.AzureNative.Cdn.V20230701Preview.AFDOriginArgs
+            {
+                ResourceGroupName = resourceGroup.Name,
+                ProfileName = profile.Name,
+                OriginGroupName = originGroup.Name,
+                OriginHostHeader = ServiceExternalIp,
+                HostName = ServiceExternalIp,
+                HttpPort = 80,
+                HttpsPort = 443,
+                EnabledState = "Enabled",
+                Priority = 1,
+                Weight = 500,
+                EnforceCertificateNameCheck = false
+
+            });
+
+             
+
+        }
+
+
+    }
+
+    private static ManagedCluster CreateAKSCluster(ResourceGroup resourceGroup, Config pulumiConfig, int clusterCount)
+    {
+        return new ManagedCluster(pulumiConfig.Get("clustername") + clusterCount ?? "AksCluster" + clusterCount,
+            new ManagedClusterArgs
             {
                 ResourceGroupName = resourceGroup.Name,
                 AgentPoolProfiles = new ManagedClusterAgentPoolProfileArgs
@@ -52,138 +138,55 @@ class MyStack : Stack
                 {
                     Type = ResourceIdentityType.SystemAssigned,
                 },
-                Location = clusterCount==0?(pulumiConfig.Get("clusterLocation1")?? "East US") :(pulumiConfig.Get("clusterLocation2")?? "WestEurope")
+                Location = clusterCount == 0 ? (pulumiConfig.Get("clusterLocation1") ?? "East US") : (pulumiConfig.Get("clusterLocation2") ?? "WestEurope")
             });
-
-            var kubeconfig = Output.Tuple(resourceGroup.Name, cluster.Name).Apply(names =>
-            ListManagedClusterUserCredentials.Invoke(new  ListManagedClusterUserCredentialsInvokeArgs
-            {
-                ResourceGroupName = names.Item1,
-                ResourceName = names.Item2,
-            })).Apply(creds => {
-                var encodedKubeconfig = creds.Kubeconfigs[0].Value;
-                var decodedKubeconfig = Encoding.UTF8.GetString(Convert.FromBase64String(encodedKubeconfig));
-                return decodedKubeconfig;
-            });
-            var k8sProvider = new Pulumi.Kubernetes.Provider("k8sprovider" + clusterCount.ToString(), new Pulumi.Kubernetes.ProviderArgs
-                {
-
-                    KubeConfig = kubeconfig
-            }) ;
-
-            // Apply the Kubernetes YAML deployment to the Kubernetes cluster.
-            var appDeployment = new Pulumi.Kubernetes.Yaml.ConfigFile("aksAppDemoDeployment" + clusterCount.ToString(),
-                new Pulumi.Kubernetes.Yaml.ConfigFileArgs
-                {
-                    File = (clusterCount == 0) ? pulumiConfig.Get("testAppEastUs") : pulumiConfig.Get("testAppWestEurope"),
-                }, new ComponentResourceOptions { Provider=k8sProvider });
-       
-        }
-
-        CreateAzureFrontDoor(resourceGroup, pulumiConfig);
-     
-}
-
-
-
-    // CreateAzFrontDoor(resourceGroup, cluster1, cluster2, frontDoorName);
-
-    [Output]
-    public Output<string> KubeConfig { get; set; }
-
-
-
-   
-    private static void CreateAzureFrontDoor(ResourceGroup resourceGroup, Pulumi.Config pulumiConfig)
-    {
-         
-        // Create an Azure Front Door profile
-        var profile = new Profile("myFrontDoorProfile", new ProfileArgs
-        {
-            ResourceGroupName = resourceGroup.Name,
-            Location = "Global", // Front Door service is always "Global"
-            Sku = new  Pulumi.AzureNative.Cdn.V20230701Preview.Inputs.SkuArgs
-            {
-                Name = "Standard_AzureFrontDoor"
-            }
-        });
-
-        // Create an Origin Group with two origins
-        var originGroup = new AFDOriginGroup("myOriginGroup", new AFDOriginGroupArgs
-        {
-            ResourceGroupName = resourceGroup.Name,
-            ProfileName = profile.Name,
-            LoadBalancingSettings = new  Pulumi.AzureNative.Cdn.V20230701Preview.Inputs.LoadBalancingSettingsParametersArgs
-            {
-                SampleSize = 4,
-                SuccessfulSamplesRequired = 2
-            },
-            HealthProbeSettings = new HealthProbeParametersArgs
-            {
-                ProbePath = "/health",
-                ProbeProtocol = ProbeProtocol.Https,
-                ProbeRequestType = HealthProbeRequestType.GET,
-                ProbeIntervalInSeconds = 60
-            }
-        });
-
-        // Define the origins
-        var origin1 = new AFDOrigin("origin1", new Pulumi.AzureNative.Cdn.V20230701Preview.AFDOriginArgs
-        {
-            ResourceGroupName = resourceGroup.Name,
-            ProfileName = profile.Name,
-            OriginGroupName = originGroup.Name,
-            OriginHostHeader = pulumiConfig.Require("aks1servicelbIPEastUs"),
-            HostName = pulumiConfig.Require("aks1servicelbIPEastUs"),
-            HttpPort = 80,
-            HttpsPort = 443,
-            EnabledState = "Enabled",
-            Priority = 1,
-            Weight = 500,
-            EnforceCertificateNameCheck = false
-
-        });
-
-        var origin2 = new AFDOrigin("origin2", new Pulumi.AzureNative.Cdn.V20230701Preview.AFDOriginArgs
-        {
-            ResourceGroupName = resourceGroup.Name,
-            ProfileName = profile.Name,
-            OriginGroupName = originGroup.Name,
-            OriginHostHeader=pulumiConfig.Require("aks2servicelbIPWestEurope"),
-            HostName = pulumiConfig.Require("aks2servicelbIPWestEurope"),
-            HttpPort = 80,
-            HttpsPort = 443,
-            EnabledState = "Enabled",
-            Priority = 2,
-            Weight = 500,
-            EnforceCertificateNameCheck=false
-        });
-
-        // Create a Frontend Endpoint
-        var frontendEndpoint = new AFDEndpoint("myFrontendEndpoint", new Pulumi.AzureNative.Cdn.V20230701Preview.AFDEndpointArgs
-        {
-            ResourceGroupName = resourceGroup.Name,
-            ProfileName = profile.Name,
-            EnabledState = "Enabled",
-            Location = pulumiConfig.Get("cluster2location")
-            // Specify other properties as required
-        }) ;
-
-        // Create a default route for the origin group
-        var route = new Route("defaultRoute", new RouteArgs
-        {
-            ResourceGroupName = resourceGroup.Name,
-            ProfileName = profile.Name,
-            EndpointName = frontendEndpoint.Name,
-            OriginGroup = new Pulumi.AzureNative.Cdn.V20230701Preview.Inputs.ResourceReferenceArgs
-            {
-                Id = originGroup.Id
-            },
-            PatternsToMatch = new List<string> { "/*" },
-            ForwardingProtocol = ForwardingProtocol.HttpOnly,
-            EnabledState = "Enabled",
-            LinkToDefaultDomain = "Enabled"
-            // Specify other properties as required
-        }) ;
     }
+
+    private static Output<string> DeployAppIntoAKS(ResourceGroup resourceGroup, Config pulumiConfig, int clusterCount, ManagedCluster cluster)
+    {
+        var kubeconfig = Output.Tuple(resourceGroup.Name, cluster.Name).Apply(names =>
+        ListManagedClusterUserCredentials.Invoke(new ListManagedClusterUserCredentialsInvokeArgs
+        {
+            ResourceGroupName = names.Item1,
+            ResourceName = names.Item2,
+        })).Apply(creds =>
+        {
+            var encodedKubeconfig = creds.Kubeconfigs[0].Value;
+            var decodedKubeconfig = Encoding.UTF8.GetString(Convert.FromBase64String(encodedKubeconfig));
+            return decodedKubeconfig;
+        });
+        var k8sProvider = new Pulumi.Kubernetes.Provider("k8sprovider" + clusterCount.ToString(), new Pulumi.Kubernetes.ProviderArgs
+        {
+
+            KubeConfig = kubeconfig
+        });
+
+        // Apply the Kubernetes YAML deployment to the Kubernetes cluster.
+        var appDeployment = new Pulumi.Kubernetes.Yaml.ConfigFile("aksAppDemoDeployment" + clusterCount.ToString(),
+            new Pulumi.Kubernetes.Yaml.ConfigFileArgs
+            {
+                File = (clusterCount == 0) ? pulumiConfig.Get("testAppEastUs") : pulumiConfig.Get("testAppWestEurope"),
+            }, new ComponentResourceOptions { Provider = k8sProvider });
+        var serviceName = "your-service-name"; // Replace with your actual service name.
+        var serviceNamespace = "default"; // Replace with the namespace if not default.
+
+        var serviceResource = new Pulumi.Kubernetes.Core.V1.Service(serviceName, new Pulumi.Kubernetes.Types.Inputs.Core.V1.ServiceArgs
+        {
+            Metadata = new Pulumi.Kubernetes.Types.Inputs.Meta.V1.ObjectMetaArgs
+            {
+                Name = serviceName,
+                Namespace = serviceNamespace,
+            },
+        }, new CustomResourceOptions { Provider = k8sProvider });
+
+        // Capture the service's LoadBalancer IP.
+         var serviceIP = serviceResource.Status.Apply(status => status.LoadBalancer.Ingress[0].Ip);
+        return serviceIP;
+        
+    }
+ 
+
+    
+
+    
 }
