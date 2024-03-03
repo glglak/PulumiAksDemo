@@ -88,14 +88,14 @@ class MyStack : Stack
             LinkToDefaultDomain = "Enabled"
             // Specify other properties as required
         });
-        for (int clusterCount=0;clusterCount<(pulumiConfig.GetInt32("clusterCount") ??2);clusterCount++)
+        for (int clusterCount = 0; clusterCount < (pulumiConfig.GetInt32("clusterCount") ?? 2); clusterCount++)
         {
             ManagedCluster cluster = CreateAKSCluster(resourceGroup, pulumiConfig, clusterCount);
 
-           this.ServiceExternalIp = DeployAppIntoAKS(resourceGroup, pulumiConfig, clusterCount, cluster);
-           
+            this.ServiceExternalIp = DeployAppIntoAKS(resourceGroup, pulumiConfig, clusterCount, cluster);
 
-            var origin = new AFDOrigin("origin"+clusterCount, new Pulumi.AzureNative.Cdn.V20230701Preview.AFDOriginArgs
+
+            var origin = new AFDOrigin("origin" + clusterCount, new Pulumi.AzureNative.Cdn.V20230701Preview.AFDOriginArgs
             {
                 ResourceGroupName = resourceGroup.Name,
                 ProfileName = profile.Name,
@@ -111,7 +111,7 @@ class MyStack : Stack
 
             });
 
-             
+
 
         }
 
@@ -167,7 +167,8 @@ class MyStack : Stack
             {
                 File = (clusterCount == 0) ? pulumiConfig.Get("testAppEastUs") : pulumiConfig.Get("testAppWestEurope"),
             }, new ComponentResourceOptions { Provider = k8sProvider });
-        var serviceName = "your-service-name"; // Replace with your actual service name.
+        var serviceName = (clusterCount == 0) ? pulumiConfig.Get("testAppNameEastUs") : pulumiConfig.Get("testAppNameWestUs"); // Replace with your actual service name.
+
         var serviceNamespace = "default"; // Replace with the namespace if not default.
 
         var serviceResource = new Pulumi.Kubernetes.Core.V1.Service(serviceName, new Pulumi.Kubernetes.Types.Inputs.Core.V1.ServiceArgs
@@ -176,17 +177,33 @@ class MyStack : Stack
             {
                 Name = serviceName,
                 Namespace = serviceNamespace,
+
             },
+            Spec = new Pulumi.Kubernetes.Types.Inputs.Core.V1.ServiceSpecArgs
+            {
+                Selector = new InputMap<string>
+            {
+            {
+                        "app", serviceName
+                    } // Make sure to replace "YourAppLabel" with the actual label that your Pods have.
+            },
+                Ports = new InputList<Pulumi.Kubernetes.Types.Inputs.Core.V1.ServicePortArgs>
+            {
+          
+            },
+
+                Type = "LoadBalancer"
+            }
         }, new CustomResourceOptions { Provider = k8sProvider });
 
         // Capture the service's LoadBalancer IP.
-         var serviceIP = serviceResource.Status.Apply(status => status.LoadBalancer.Ingress[0].Ip);
+        var serviceIP = serviceResource.Status.Apply(status => status.LoadBalancer.Ingress[0].Ip);
         return serviceIP;
-        
+
     }
- 
 
-    
 
-    
+
+
+
 }

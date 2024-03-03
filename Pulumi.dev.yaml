@@ -11,3 +11,5 @@ config:
   clusterCount : 2
   testAppEastUs : https://raw.githubusercontent.com/phillipgibson/Cloud-Azure-AKS-Using-AFD-with-AKS/master/yaml/phillipgibson-azure-frontdoor-eastus2-elb-app.yaml
   testAppWestEurope: https://raw.githubusercontent.com/phillipgibson/Cloud-Azure-AKS-Using-AFD-with-AKS/master/yaml/phillipgibson-azure-frontdoor-westus2-elb-app.yaml
+  testAppNameEastUs : azure-frontdoor-eastus2-app
+  testAppNameWestUs : azure-frontdoor-westus2-app
