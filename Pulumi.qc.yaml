@@ -1,11 +1,11 @@
 config:
   azure-native:location: WestUS2
-  rg-region1: rg-dev-eastus
-  rg-region2: rg-dev-westeurope
+  rg-region1: rg-qc-eastus
+  rg-region2: rg-qc-westeurope
   nodecount: 3
   ostype: Linux
   vmsize: Standard_DS2_v2
-  clustername: aks-dev-cluster
+  clustername: aks-qc-cluster
   cluster1location : East US
   cluster2location : WestEurope
   clusterCount : 2
